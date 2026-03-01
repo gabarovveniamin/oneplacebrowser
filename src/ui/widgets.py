@@ -6,35 +6,38 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon
 
+from src.ui.styles import StyleManager
+
 
 class AddressBar(QLineEdit):
     """Chrome-style address bar"""
     
     url_entered = pyqtSignal(str)
     
-    def __init__(self):
+    def __init__(self, theme_manager=None):
         super().__init__()
+        self.theme_manager = theme_manager
         self.setPlaceholderText("Search or enter address")
-        self.setStyleSheet("""
-            QLineEdit {
-                padding: 8px 12px;
-                border: 1px solid #dadada;
-                border-radius: 24px;
-                font-size: 13px;
-                background-color: #f1f3f4;
-                color: #202124;
-                selection-background-color: #4285f4;
-            }
-            QLineEdit:focus {
-                border: 2px solid #4285f4;
-                background-color: #ffffff;
-                padding: 7px 11px;
-            }
-            QLineEdit:hover {
-                background-color: #ebebeb;
-            }
-        """)
         self.setMinimumHeight(36)
+        
+        # Apply initial theme
+        if self.theme_manager:
+            self.update_theme()
+            self.theme_manager.theme_changed.connect(self.on_theme_changed)
+        else:
+            # Fallback light theme
+            self.setStyleSheet(StyleManager.get_address_bar_stylesheet(
+                self.theme_manager.LIGHT_THEME if self.theme_manager else None
+            ))
+    
+    def on_theme_changed(self, theme_name: str):
+        """Update style when theme changes"""
+        self.update_theme()
+    
+    def update_theme(self):
+        """Update address bar theme"""
+        theme = self.theme_manager.current_theme
+        self.setStyleSheet(StyleManager.get_address_bar_stylesheet(theme))
     
     def keyPressEvent(self, event):
         """Handle Enter key"""
@@ -51,12 +54,13 @@ class TabBar(QWidget):
     new_tab_requested = pyqtSignal()
     close_tab_requested = pyqtSignal(int)
     
-    def __init__(self):
+    def __init__(self, theme_manager=None):
         super().__init__()
         self.tabs = []
         self.tab_buttons = []
         self.close_buttons = []
         self.current_index = -1
+        self.theme_manager = theme_manager
         
         # Main layout
         main_layout = QHBoxLayout()
@@ -66,7 +70,105 @@ class TabBar(QWidget):
         # Scroll area for tabs
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
+        self.scroll = scroll
+        
+        # Container for tabs
+        self.tabs_container = QWidget()
+        self.tabs_layout = QHBoxLayout()
+        self.tabs_layout.setContentsMargins(0, 0, 0, 0)
+        self.tabs_layout.setSpacing(-1)
+        self.tabs_container.setLayout(self.tabs_layout)
+        
+        # Add "+" button for new tab to the layout
+        self.new_tab_btn = QPushButton("+")
+        self.new_tab_btn.setMaximumWidth(40)
+        self.new_tab_btn.setMinimumHeight(38)
+        self.new_tab_btn.clicked.connect(self.new_tab_requested.emit)
+        self.new_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        
+        self.tabs_layout.addWidget(self.new_tab_btn)
+        
+        scroll.setWidget(self.tabs_container)
+        main_layout.addWidget(scroll)
+        
+        self.setLayout(main_layout)
+        self.setMaximumHeight(38)
+        
+        # Apply theme
+        if self.theme_manager:
+            self.update_theme()
+            self.theme_manager.theme_changed.connect(self.on_theme_changed)
+        else:
+            self.apply_light_theme()
+    
+    def on_theme_changed(self, theme_name: str):
+        """Update style when theme changes"""
+        self.update_theme()
+    
+    def update_theme(self):
+        """Update tab bar styles with current theme"""
+        theme = self.theme_manager.current_theme
+        c = theme.colors
+        
+        # Scroll area
+        scroll_style = f"""
+            QScrollArea {{
+                background-color: {c['bg_secondary']};
+                border: none;
+            }}
+            QScrollBar:horizontal {{
+                height: 6px;
+            }}
+            QScrollBar::handle:horizontal {{
+                background: {c['scroll_handle']};
+                border-radius: 3px;
+            }}
+            QScrollBar::handle:horizontal:hover {{
+                background: {c['scroll_handle_hover']};
+            }}
+        """
+        self.scroll.setStyleSheet(scroll_style)
+        
+        # Tabs container
+        tabs_container_style = f"background-color: {c['bg_secondary']}; margin: 0px; padding: 0px;"
+        self.tabs_container.setStyleSheet(tabs_container_style)
+        
+        # New tab button
+        new_tab_style = f"""
+            QPushButton {{
+                background-color: {c['bg_secondary']};
+                border: none;
+                font-size: 18px;
+                font-weight: bold;
+                color: {c['nav_text']};
+                padding: 0px 4px;
+                margin: 0px;
+                border-radius: 0px;
+            }}
+            QPushButton:hover {{
+                background-color: {c['button_hover']};
+                color: {c['text_primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {c['button_pressed']};
+            }}
+        """
+        self.new_tab_btn.setStyleSheet(new_tab_style)
+        
+        # Main widget
+        main_style = f"""
+            QWidget {{
+                background-color: {c['bg_secondary']};
+                border-bottom: 1px solid {c['border']};
+                margin: 0px;
+                padding: 0px;
+            }}
+        """
+        self.setStyleSheet(main_style)
+    
+    def apply_light_theme(self):
+        """Apply light theme as fallback"""
+        light_scroll_style = """
             QScrollArea {
                 background-color: #f3f3f3;
                 border: none;
@@ -81,21 +183,11 @@ class TabBar(QWidget):
             QScrollBar::handle:horizontal:hover {
                 background: #999;
             }
-        """)
-        
-        # Container for tabs
-        self.tabs_container = QWidget()
-        self.tabs_layout = QHBoxLayout()
-        self.tabs_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs_layout.setSpacing(-1)
-        self.tabs_container.setLayout(self.tabs_layout)
+        """
+        self.scroll.setStyleSheet(light_scroll_style)
         self.tabs_container.setStyleSheet("background-color: #f3f3f3; margin: 0px; padding: 0px;")
         
-        # Add "+" button for new tab to the layout
-        new_tab_btn = QPushButton("+")
-        new_tab_btn.setMaximumWidth(40)
-        new_tab_btn.setMinimumHeight(38)
-        new_tab_btn.setStyleSheet("""
+        light_new_tab_style = """
             QPushButton {
                 background-color: #f3f3f3;
                 border: none;
@@ -113,17 +205,9 @@ class TabBar(QWidget):
             QPushButton:pressed {
                 background-color: #d0d0d0;
             }
-        """)
-        new_tab_btn.clicked.connect(self.new_tab_requested.emit)
-        new_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.new_tab_btn = new_tab_btn
+        """
+        self.new_tab_btn.setStyleSheet(light_new_tab_style)
         
-        self.tabs_layout.addWidget(new_tab_btn)
-        
-        scroll.setWidget(self.tabs_container)
-        main_layout.addWidget(scroll)
-        
-        self.setLayout(main_layout)
         self.setStyleSheet("""
             QWidget {
                 background-color: #f3f3f3;
@@ -132,7 +216,6 @@ class TabBar(QWidget):
                 padding: 0px;
             }
         """)
-        self.setMaximumHeight(38)
     
     def add_tab(self, tab_name: str, index: int = None) -> QPushButton:
         """Add new tab with close button (Chrome-style compact)"""
@@ -282,67 +365,3 @@ class TabBar(QWidget):
                     background-color: #d0d0d0;
                 }
             """
-
-
-class StyleManager:
-    """Manage application styles"""
-    
-    @staticmethod
-    def get_dark_stylesheet() -> str:
-        """Get dark theme stylesheet"""
-        return """
-            QMainWindow {
-                background-color: #1e1e1e;
-                color: #ffffff;
-            }
-            QMenuBar {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border-bottom: 1px solid #3d3d3d;
-            }
-            QMenuBar::item:selected {
-                background-color: #3d3d3d;
-            }
-            QMenu {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
-            }
-            QMenu::item:selected {
-                background-color: #3d3d3d;
-            }
-            QLineEdit {
-                background-color: #2d2d2d;
-                color: #ffffff;
-                border: 1px solid #3d3d3d;
-                padding: 5px;
-                border-radius: 4px;
-            }
-            QPushButton {
-                background-color: #0066cc;
-                color: #ffffff;
-                border: none;
-                padding: 5px 15px;
-                border-radius: 3px;
-            }
-            QPushButton:hover {
-                background-color: #0052a3;
-            }
-        """
-    
-    @staticmethod
-    def get_light_stylesheet() -> str:
-        """Get light theme stylesheet"""
-        return """
-            QMainWindow {
-                background-color: #ffffff;
-                color: #000000;
-            }
-            QLineEdit {
-                background-color: #f0f0f0;
-                color: #000000;
-                border: 1px solid #ddd;
-                padding: 5px;
-                border-radius: 4px;
-            }
-        """

@@ -8,6 +8,7 @@ from PyQt6.QtCore import QUrl, Qt, pyqtSignal
 from PyQt6.QtGui import QIcon
 
 from src.ui.widgets import AddressBar, TabBar
+from src.ui.styles import ThemeManager, StyleManager
 from src.browser.tabs import TabManager
 from src.storage.database import DatabaseManager
 from src.utils.helpers import UrlValidator, Logger
@@ -22,16 +23,16 @@ class BrowserWindow(QMainWindow):
         self.url_validator = UrlValidator()
         self.tab_manager = TabManager()
         self.db_manager = DatabaseManager()
+        self.theme_manager = ThemeManager()
         
         self.setWindowTitle("Comet Browser")
         self.setGeometry(100, 100, 1400, 900)
         
-        # Apply Chrome-like styling
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #ffffff;
-            }
-        """)
+        # Connect theme changes
+        self.theme_manager.theme_changed.connect(self.apply_theme)
+        
+        # Apply initial theme
+        self.apply_theme(self.theme_manager.current_theme.name)
         
         self.init_ui()
         self.logger.info("Browser window initialized")
@@ -49,7 +50,7 @@ class BrowserWindow(QMainWindow):
         self.create_menu_bar()
         
         # Create tab bar
-        self.tab_bar = TabBar()
+        self.tab_bar = TabBar(self.theme_manager)
         self.tab_bar.tab_clicked.connect(self.on_tab_clicked)
         self.tab_bar.new_tab_requested.connect(self.create_new_tab)
         self.tab_bar.close_tab_requested.connect(self.on_close_tab)
@@ -88,6 +89,59 @@ class BrowserWindow(QMainWindow):
         view_menu = menubar.addMenu("View")
         view_menu.addAction("History", self.show_history)
         view_menu.addAction("Bookmarks", self.show_bookmarks)
+        
+        # Theme menu
+        theme_menu = menubar.addMenu("Theme")
+        light_action = theme_menu.addAction("Light Mode")
+        dark_action = theme_menu.addAction("Dark Mode")
+        theme_menu.addSeparator()
+        toggle_action = theme_menu.addAction("Toggle Theme")
+        
+        light_action.triggered.connect(lambda: self.theme_manager.set_theme("light"))
+        dark_action.triggered.connect(lambda: self.theme_manager.set_theme("dark"))
+        toggle_action.triggered.connect(self.theme_manager.toggle_theme)
+    
+    def apply_theme(self, theme_name: str):
+        """Apply theme to the entire application"""
+        theme = self.theme_manager.current_theme
+        
+        # Apply main stylesheet
+        self.setStyleSheet(StyleManager.get_stylesheet(theme))
+        
+        # Update address bar style
+        if hasattr(self, 'address_bar'):
+            self.address_bar.setStyleSheet(StyleManager.get_address_bar_stylesheet(theme))
+        
+        # Update tab bar styles (we'll need to update this after)
+        if hasattr(self, 'tab_bar'):
+            # Update nav buttons
+            nav_btn_style = f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: none;
+                    color: {theme.colors['nav_text']};
+                    font-size: 14px;
+                    font-weight: bold;
+                    padding: 4px 8px;
+                    border-radius: 4px;
+                }}
+                QPushButton:hover {{
+                    background-color: {theme.colors['button_hover']};
+                    color: {theme.colors['text_primary']};
+                }}
+                QPushButton:pressed {{
+                    background-color: {theme.colors['button_pressed']};
+                }}
+                QPushButton:disabled {{
+                    color: {theme.colors['nav_disabled']};
+                }}
+            """
+            
+            # Apply to existing nav buttons
+            if hasattr(self, 'back_btn'):
+                self.back_btn.setStyleSheet(nav_btn_style)
+            if hasattr(self, 'forward_btn'):
+                self.forward_btn.setStyleSheet(nav_btn_style)
     
     def create_navigation_bar(self) -> QHBoxLayout:
         """Create Chrome-style navigation bar"""
@@ -95,27 +149,28 @@ class BrowserWindow(QMainWindow):
         nav_layout.setContentsMargins(8, 6, 8, 6)
         nav_layout.setSpacing(4)
         
-        # Styling for nav buttons
-        nav_btn_style = """
-            QPushButton {
+        # Get styling from theme manager
+        theme = self.theme_manager.current_theme
+        nav_btn_style = f"""
+            QPushButton {{
                 background-color: transparent;
                 border: none;
-                color: #555;
+                color: {theme.colors['nav_text']};
                 font-size: 14px;
                 font-weight: bold;
                 padding: 4px 8px;
                 border-radius: 4px;
-            }
-            QPushButton:hover {
-                background-color: #e8e8e8;
-                color: #222;
-            }
-            QPushButton:pressed {
-                background-color: #d0d0d0;
-            }
-            QPushButton:disabled {
-                color: #ccc;
-            }
+            }}
+            QPushButton:hover {{
+                background-color: {theme.colors['button_hover']};
+                color: {theme.colors['text_primary']};
+            }}
+            QPushButton:pressed {{
+                background-color: {theme.colors['button_pressed']};
+            }}
+            QPushButton:disabled {{
+                color: {theme.colors['nav_disabled']};
+            }}
         """
         
         # Back button
@@ -146,6 +201,7 @@ class BrowserWindow(QMainWindow):
         refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self.refresh)
         nav_layout.addWidget(refresh_btn)
+        self.refresh_btn = refresh_btn
         
         # Home button
         home_btn = QPushButton("⌂")
@@ -155,9 +211,10 @@ class BrowserWindow(QMainWindow):
         home_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         home_btn.clicked.connect(self.go_home)
         nav_layout.addWidget(home_btn)
+        self.home_btn = home_btn
         
         # Address bar
-        self.address_bar = AddressBar()
+        self.address_bar = AddressBar(self.theme_manager)
         self.address_bar.url_entered.connect(self.navigate)
         nav_layout.addWidget(self.address_bar)
         
@@ -169,6 +226,7 @@ class BrowserWindow(QMainWindow):
         bookmark_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         bookmark_btn.clicked.connect(self.add_bookmark)
         nav_layout.addWidget(bookmark_btn)
+        self.bookmark_btn = bookmark_btn
         
         # Menu button
         menu_btn = QPushButton("⋮")
@@ -178,6 +236,7 @@ class BrowserWindow(QMainWindow):
         menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         menu_btn.clicked.connect(self.show_menu)
         nav_layout.addWidget(menu_btn)
+        self.menu_btn = menu_btn
         
         return nav_layout
     
