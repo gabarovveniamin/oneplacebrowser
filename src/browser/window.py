@@ -1,16 +1,20 @@
 """Main browser window"""
+import os
 from PyQt6.QtWidgets import (
     QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, 
-    QPushButton, QLabel, QStackedWidget, QMenu, QMenuBar
+    QPushButton, QLabel, QStackedWidget, QMenu, QMenuBar, QMessageBox
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtCore import QUrl, Qt, pyqtSignal
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 
 from src.ui.widgets import AddressBar, TabBar
 from src.ui.styles import ThemeManager, StyleManager
+from src.ui.history import HistoryDialog, BookmarksDialog
 from src.browser.tabs import TabManager
 from src.storage.database import DatabaseManager
+from src.auth.auth_manager import AuthManager
+from src.auth.google_oauth import LoginDialog
 from src.utils.helpers import UrlValidator, Logger
 
 
@@ -24,6 +28,8 @@ class BrowserWindow(QMainWindow):
         self.tab_manager = TabManager()
         self.db_manager = DatabaseManager()
         self.theme_manager = ThemeManager()
+        self.auth_manager = AuthManager()
+        self.current_user_email = None
         
         self.setWindowTitle("Comet Browser")
         self.setGeometry(100, 100, 1400, 900)
@@ -35,6 +41,10 @@ class BrowserWindow(QMainWindow):
         self.apply_theme(self.theme_manager.current_theme.name)
         
         self.init_ui()
+        
+        # Show login dialog after UI is ready
+        self.show_login_dialog()
+        
         self.logger.info("Browser window initialized")
     
     def init_ui(self):
@@ -66,8 +76,10 @@ class BrowserWindow(QMainWindow):
         
         central_widget.setLayout(layout)
         
-        # Create first tab
-        self.create_new_tab("about:blank")
+        # Create first tab with start page
+        startpage_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'startpage.html')
+        startpage_url = f"file:///{os.path.abspath(startpage_path).replace(chr(92), '/')}"
+        self.create_new_tab(startpage_url)
     
     def create_menu_bar(self):
         """Create menu bar"""
@@ -228,6 +240,11 @@ class BrowserWindow(QMainWindow):
         nav_layout.addWidget(bookmark_btn)
         self.bookmark_btn = bookmark_btn
         
+        # User label
+        self.user_label = QLabel("Guest")
+        self.user_label.setMaximumWidth(100)
+        nav_layout.addWidget(self.user_label)
+        
         # Menu button
         menu_btn = QPushButton("⋮")
         menu_btn.setMaximumWidth(36)
@@ -240,10 +257,15 @@ class BrowserWindow(QMainWindow):
         
         return nav_layout
     
-    def create_new_tab(self, url: str = "about:blank", is_first: bool = False):
+    def create_new_tab(self, url: str = None, is_first: bool = False):
         """Create new tab"""
+        # Use start page if no URL provided
+        if url is None or url == "about:blank":
+            startpage_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'startpage.html')
+            url = f"file:///{os.path.abspath(startpage_path).replace(chr(92), '/')}"
+        
         web_view = QWebEngineView()
-        web_view.setUrl(QUrl(self.url_validator.normalize_url(url)))
+        web_view.setUrl(QUrl(self.url_validator.normalize_url(url) if url.startswith('file://') is False else url))
         
         # Connect events
         web_view.urlChanged.connect(self.on_url_changed)
@@ -254,7 +276,7 @@ class BrowserWindow(QMainWindow):
         self.stacked_widget.setCurrentWidget(web_view)
         
         # Add tab to tab bar
-        self.tab_bar.add_tab("New Tab")
+        self.tab_bar.add_tab("Стартовая страница")
         self.tab_bar.set_active_tab(current_index)
         
         # Add to tab manager
@@ -272,7 +294,7 @@ class BrowserWindow(QMainWindow):
             self.address_bar.setText(normalized_url)
             
             # Add to history
-            self.db_manager.add_to_history(normalized_url)
+            self.db_manager.add_to_history(normalized_url, user_email=self.current_user_email)
             self.logger.info(f"Navigated to: {normalized_url}")
     
     def go_back(self):
@@ -354,26 +376,40 @@ class BrowserWindow(QMainWindow):
         if web_view:
             url = web_view.url().toString()
             title = web_view.title()
-            self.db_manager.add_bookmark(url, title)
+            if self.db_manager.add_bookmark(url, title, user_email=self.current_user_email):
+                QMessageBox.information(self, "Success", "Bookmark added")
+            else:
+                QMessageBox.warning(self, "Info", "Bookmark already exists")
             self.logger.info(f"Bookmark added: {url}")
     
     def clear_history(self):
         """Clear browsing history"""
-        self.logger.info("History cleared")
+        reply = QMessageBox.question(
+            self, 
+            "Confirm",
+            "Are you sure you want to clear all history?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self.db_manager.clear_history(user_email=self.current_user_email)
+            QMessageBox.information(self, "Success", "History cleared")
+            self.logger.info("History cleared")
     
     def clear_cache(self):
         """Clear cache"""
         self.logger.info("Cache cleared")
     
     def show_history(self):
-        """Show history"""
-        history = self.db_manager.get_history()
-        self.logger.info(f"History: {history}")
+        """Show history dialog"""
+        history_dialog = HistoryDialog(self.db_manager, user_email=self.current_user_email, parent=self)
+        history_dialog.navigate_requested.connect(self.navigate)
+        history_dialog.exec()
     
     def show_bookmarks(self):
-        """Show bookmarks"""
-        bookmarks = self.db_manager.get_bookmarks()
-        self.logger.info(f"Bookmarks: {bookmarks}")
+        """Show bookmarks dialog"""
+        bookmarks_dialog = BookmarksDialog(self.db_manager, user_email=self.current_user_email, parent=self)
+        bookmarks_dialog.navigate_requested.connect(self.navigate)
+        bookmarks_dialog.exec()
     
     def new_window(self):
         """Create new window"""
@@ -382,6 +418,39 @@ class BrowserWindow(QMainWindow):
     def show_menu(self):
         """Show browser menu"""
         self.logger.info("Menu opened")
+    
+    def show_login_dialog(self):
+        """Show Google login dialog"""
+        # Check if user already authenticated
+        if self.auth_manager.is_authenticated:
+            self.update_user_label()
+            self.current_user_email = self.auth_manager.get_user_email()
+            return
+        
+        login_dialog = LoginDialog(parent=self)
+        login_dialog.login_successful.connect(self.on_login_successful)
+        login_dialog.exec()
+    
+    def on_login_successful(self, profile_id: str):
+        """Handle successful profile selection"""
+        if self.auth_manager.save_user_data(profile_id):
+            profile = self.auth_manager.get_current_user()
+            if profile:
+                # Update user label
+                user_name = profile.get('name', 'User')
+                self.user_label.setText(f"👤 {user_name}")
+                
+                # Update current user email (use profile id)
+                self.current_user_email = profile_id
+                
+                self.logger.info(f"Profile activated: {user_name}")
+        else:
+            QMessageBox.warning(self, "Error", "Failed to activate profile")
+    
+    def update_user_label(self):
+        """Update user label with current user info"""
+        user_name = self.auth_manager.get_user_name()
+        self.user_label.setText(f"👤 {user_name}")
     
     def closeEvent(self, event):
         """Handle window close"""
