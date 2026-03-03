@@ -13,6 +13,10 @@ setup(
         "requests>=2.31.0",
         "lxml>=4.9.3",
         "beautifulsoup4>=4.12.2",
+        "google-auth-oauthlib>=1.2.0",
+        "google-auth-httplib2>=0.2.0",
+        "google-auth>=2.27.0",
+        "google-api-python-client>=2.108.0",
     ],
     python_requires=">=3.8",
     entry_points={

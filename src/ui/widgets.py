@@ -62,31 +62,43 @@ class TabBar(QWidget):
         self.current_index = -1
         self.theme_manager = theme_manager
         
-        # Main layout
+        # Main layout для всей TAB BAR
         main_layout = QHBoxLayout()
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
+        # Layout для табов с LEFT alignment
+        tabs_wrapper_layout = QHBoxLayout()
+        tabs_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        tabs_wrapper_layout.setSpacing(0)
+        tabs_wrapper_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
         # Scroll area for tabs
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.scroll = scroll
         
-        # Container for tabs
+        # Container for tabs внутри scroll
         self.tabs_container = QWidget()
         self.tabs_layout = QHBoxLayout()
         self.tabs_layout.setContentsMargins(0, 0, 0, 0)
-        self.tabs_layout.setSpacing(-1)
+        self.tabs_layout.setSpacing(-1)  # negative spacing для overlap
+        self.tabs_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self.tabs_container.setLayout(self.tabs_layout)
         
-        # Add "+" button for new tab to the layout
+        # Add "+" button for new tab
         self.new_tab_btn = QPushButton("+")
         self.new_tab_btn.setMaximumWidth(40)
         self.new_tab_btn.setMinimumHeight(38)
         self.new_tab_btn.clicked.connect(self.new_tab_requested.emit)
         self.new_tab_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         
+        # Добавляем + в конец layout табов
         self.tabs_layout.addWidget(self.new_tab_btn)
+        # Добавляем stretch чтобы табы прижались влево
+        self.tabs_layout.addStretch()
         
         scroll.setWidget(self.tabs_container)
         main_layout.addWidget(scroll)
@@ -275,20 +287,19 @@ class TabBar(QWidget):
         """)
         
         # Insert before the "+" button
+        # Находим позицию кнопки "+"
+        plus_pos = self.tabs_layout.indexOf(self.new_tab_btn)
+        
         if index is not None:
             insert_pos = index
         else:
             insert_pos = len(self.tabs)
         
-        # Insert widget before the + button
+        # Вставляем таб перед "+" кнопкой
         self.tabs_layout.insertWidget(insert_pos, tab_container)
         self.tabs.insert(insert_pos, tab_container)
         self.tab_buttons.insert(insert_pos, tab_btn)
         self.close_buttons.insert(insert_pos, close_btn)
-        
-        # Move the + button to the end
-        self.tabs_layout.removeWidget(self.new_tab_btn)
-        self.tabs_layout.addWidget(self.new_tab_btn)
         
         return tab_btn
     
